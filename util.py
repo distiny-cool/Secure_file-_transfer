@@ -32,7 +32,7 @@ def load_key(key_path="session.key"):
         exit(1)
 
 
-def encrypt(filename, key):
+def encrypt_file(filename, key):
     """Given a filename (str) and key (bytes), it encrypts the file and write it"""
     fer = Fernet(key)
     with open(filename, "rb") as file:
@@ -43,7 +43,7 @@ def encrypt(filename, key):
         file.write(encrypted_data)
 
 
-def decrypt(filename, key):
+def decrypt_file(filename, key):
     """Given a filename (str) and key (bytes), it decrypts the file and write it"""
     fer = Fernet(key)
     with open(filename, "rb") as file:
@@ -59,7 +59,7 @@ def generate_rsa_key_pair(save_path):
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     public_key = private_key.public_key()
 
-    if save_path:
+    try:
         # Save private key
         with open(f"{save_path}/private.pem", "wb") as f:
             f.write(
@@ -78,6 +78,8 @@ def generate_rsa_key_pair(save_path):
                     format=serialization.PublicFormat.SubjectPublicKeyInfo,
                 )
             )
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 def load_public_key(path):
@@ -93,16 +95,16 @@ def load_private_key(path):
     
 
 def encrypt_rsa(public_key, data):
-    """Encrypt data using RSA public key."""
+    """Encrypt data (str) using RSA public key as encrypted data(byte).."""
     return public_key.encrypt(
         data.encode("utf-8"), padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
     )
 
 def decrypt_rsa(private_key, encrypted_data):
-    """Decrypt data using RSA private key."""
+    """Decrypt data (str) from encrypted data(byte) using RSA private key."""
     return private_key.decrypt(
         encrypted_data, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
-    )
+    ).decode("utf-8")
 
 if __name__ == "__main__":
     generate_rsa_key_pair(
