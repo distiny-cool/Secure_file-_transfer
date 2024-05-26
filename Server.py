@@ -30,11 +30,14 @@ class Server:
                 break
             data = data.split("@")
             cmd = data[0]
+            print(f"[{addr}] {cmd}")
 
             if cmd == "LIST":
                 self.handle_list(conn)
             elif cmd == "UPLOAD":
                 self.handle_upload(conn, data)
+            elif cmd == "DOWNLOAD":
+                self.handle_download(conn, data)
             elif cmd == "DELETE":
                 self.handle_delete(conn, data)
             elif cmd == "LOGOUT":
@@ -67,6 +70,21 @@ class Server:
             f.write(text)
         send_data = "OK@File uploaded successfully."
         conn.send(base64Encode(send_data))
+    
+    def handle_download(self, conn, data):
+        """Handle downloading files from the server."""
+        files = os.listdir(self.SERVER_DATA_PATH)
+        send_data = "FILE@"
+        filename = base64Decode(data[1])
+        if filename not in files:
+            conn.send(base64Encode("ERROR@File not found."))
+            return
+        with open(os.path.join(self.SERVER_DATA_PATH, filename), "rb") as f:
+            text = f.read()
+        filename_encoded = base64Encode(filename).decode(self.FORMAT)
+        text_encoded = base64.b64encode(text).decode(self.FORMAT)
+        send_data += f"{filename_encoded}@{text_encoded}"
+        conn.send(base64Encode(send_data))
 
     def handle_delete(self, conn, data):
         """Handle deleting files from the server."""
@@ -92,6 +110,7 @@ class Server:
         data = "OK@"
         data += "LIST: List all the files from the server.\n"
         data += "UPLOAD <path>: Upload a file to the server.\n"
+        data += "DOWNLOAD <filename>: Download a file from the server.\n"
         data += "DELETE <filename>: Delete a file from the server.\n"
         data += "LOGOUT: Disconnect from the server.\n"
         data += "HELP: List all the commands."

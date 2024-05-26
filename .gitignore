@@ -1,3 +1,5 @@
 __pycache__
 *.key
 *.pem
+Client_data
+Server_data

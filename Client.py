@@ -8,6 +8,7 @@ class Client:
     PORT = 2333
     ADDR = (IP, PORT)
     SIZE = 1024
+    CLINET_DATA_PATH = "Client_data"
     FORMAT = 'utf-8'
 
     def __init__(self):
@@ -47,15 +48,26 @@ class Client:
             while True:
                 data = base64Decode(self.client.recv(self.SIZE))
                 if data:
-                    cmd, msg = data.split("@")
+                    cmd, _, msg = data.partition("@")
                     with self.condition:
                         self.last_response = (cmd, msg)
                         self.condition.notify()  # Notify waiting thread
                     if cmd == "BYE":
                         print(f"[SERVER]: {msg}")
                         break
+                    elif cmd == "FILE":
+                        filename, text = msg.split("@")
+                        filename = base64Decode(filename)
+                        filepath = f"{self.CLINET_DATA_PATH}/{filename}"
+                        print(text)
+                        text = base64.b64decode(text)
+                        with open(filepath , "wb") as file:
+                            file.write(text)
+                        print(f"File '{filename}' downloaded successfully.")
                     elif cmd == "OK":
                         print(msg)
+                    elif cmd == "ERROR":
+                        print(f"ERROR: {msg}")
         finally:
             print("Disconnected from the server.")
             self.client.close()
@@ -87,6 +99,14 @@ class Client:
                         self.upload_file(path)
                     else:
                         print("ERROR: No path provided for UPLOAD.")
+                
+                elif cmd == "DOWNLOAD":
+                    if len(data) > 1:
+                        filename = data[1]
+                        filename_encoded = base64Encode(filename).decode(self.FORMAT)
+                        self.send_command(cmd, filename_encoded)
+                    else:
+                        print("ERROR: No filename provided for DOWNLOAD.")
 
                 else:
                     print("Invalid command. Type HELP for more information.")
