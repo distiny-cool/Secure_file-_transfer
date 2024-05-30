@@ -8,7 +8,7 @@ class Client:
     PORT = 2333
     ADDR = (IP, PORT)
     SIZE = 1024
-    CLINET_DATA_PATH = "Client_data"
+    CLIENT_DATA_PATH = "Client_data"
     FORMAT = 'utf-8'
 
     def __init__(self):
@@ -25,28 +25,31 @@ class Client:
                 send_data = f"{cmd}@{data}"
             else:
                 send_data = cmd
-            self.client.send(base64Encode(send_data))
+            self.client.sendall(b64_encode_text(send_data))
             self.condition.wait()  # Wait for the response before returning
 
     def upload_file(self, path):
         """Handle the upload file logic."""
         try:
             with open(path, "rb") as file:
-                text = file.read()
+                file_contents = file.read()
         except FileNotFoundError:
             print(f"ERROR: File '{path}' not found.")
             return
         filename = path.split("/")[-1]  # for UNIX-like paths
         filename = path.split("\\")[-1]  # for Windows paths
-        filename_encoded = base64Encode(filename).decode(self.FORMAT)
-        text_encoded = base64.b64encode(text).decode(self.FORMAT)
-        self.send_command("UPLOAD", f"{filename_encoded}@{text_encoded}")
+
+        # Encode the filename and file contents(Escape special characters)
+        b64_filename = b64_encode_text(filename).decode(self.FORMAT)
+        b64_contents = b64_encode_file(file_contents).decode(self.FORMAT)
+
+        self.send_command("UPLOAD", f"{b64_filename}@{b64_contents}$")
 
     def receive_messages(self):
         """Receive messages from the server and handle them."""
         try:
             while True:
-                data = base64Decode(self.client.recv(self.SIZE))
+                data = b64_decode_text(self.client.recv(self.SIZE))
                 if data:
                     cmd, _, msg = data.partition("@")
                     with self.condition:
@@ -56,13 +59,18 @@ class Client:
                         print(f"[SERVER]: {msg}")
                         break
                     elif cmd == "FILE":
-                        filename, text = msg.split("@")
-                        filename = base64Decode(filename)
-                        filepath = f"{self.CLINET_DATA_PATH}/{filename}"
-                        print(text)
-                        text = base64.b64decode(text)
+                        filename, contents = msg.split("@")
+                        filename = b64_decode_text(filename)
+                        filepath = f"{self.CLIENT_DATA_PATH}/{filename}"
+
+                        # Receive the file content all
+                        # todo: if spent too much time, it should be break and return error
+                        while not contents.endswith("$"):
+                            contents += b64_decode_text(self.client.recv(self.SIZE))
+                        contents = b64_decode_file(contents[:-1])
+
                         with open(filepath , "wb") as file:
-                            file.write(text)
+                            file.write(contents)
                         print(f"File '{filename}' downloaded successfully.")
                     elif cmd == "OK":
                         print(msg)
@@ -88,7 +96,7 @@ class Client:
                 elif cmd == "DELETE":
                     if len(data) > 1:
                         filename = data[1]
-                        filename_encoded = base64Encode(filename).decode(self.FORMAT)
+                        filename_encoded = b64_encode_text(filename).decode(self.FORMAT)
                         self.send_command(cmd, filename_encoded)
                     else:
                         print("ERROR: No filename provided for DELETE.")
@@ -103,7 +111,7 @@ class Client:
                 elif cmd == "DOWNLOAD":
                     if len(data) > 1:
                         filename = data[1]
-                        filename_encoded = base64Encode(filename).decode(self.FORMAT)
+                        filename_encoded = b64_encode_text(filename).decode(self.FORMAT)
                         self.send_command(cmd, filename_encoded)
                     else:
                         print("ERROR: No filename provided for DOWNLOAD.")

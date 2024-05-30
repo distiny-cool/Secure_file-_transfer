@@ -5,15 +5,22 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-def base64Encode(text):
-    """Encode the text into base64 format."""
+def b64_encode_text(text):
+    """Encode the text(str) into bytes with base64 format."""
     return base64.b64encode(text.encode("utf-8"))
 
 
-def base64Decode(text):
-    """Decode the text from base64 format."""
+def b64_decode_text(text):
+    """Decode the text(bytes/str) from base64 format into str."""
     return base64.b64decode(text).decode("utf-8")
 
+def b64_encode_file(file):
+    """Encode the file into bytes with base64 format."""
+    return base64.b64encode(file)
+
+def b64_decode_file(file):
+    """Decode the file from base64 format into bytes."""
+    return base64.b64decode(file)
 
 def generate_and_save_key(key_path="session.key"):
     """Generates a key and save it into a file"""

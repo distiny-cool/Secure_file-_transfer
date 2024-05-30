@@ -22,10 +22,10 @@ class Server:
     def handle_client(self, conn, addr):
         """Handles individual client connection."""
         print(f"[NEW CONNECTION] {addr} connected.")
-        conn.send(base64Encode("OK@Welcome to the File Server."))
+        conn.send(b64_encode_text("OK@Welcome to the File Server."))
 
         while True:
-            data = base64Decode(conn.recv(self.SIZE))
+            data = b64_decode_text(conn.recv(self.SIZE))
             if not data:
                 break
             data = data.split("@")
@@ -59,50 +59,56 @@ class Server:
             send_data += "The server directory is empty"
         else:
             send_data += "\n".join(f for f in files)
-        conn.send(base64Encode(send_data))
+        conn.send(b64_encode_text(send_data))
 
     def handle_upload(self, conn, data):
         """Handle uploading files to the server."""
-        name = base64Decode(data[1])
-        text = base64.b64decode(data[2])
-        filepath = os.path.join(self.SERVER_DATA_PATH, name)
+        file_name = b64_decode_text(data[1])
+        file_contents = data[2]
+        while not file_contents.endswith("$"):
+            file_contents += b64_decode_text(conn.recv(self.SIZE))
+        file_contents = b64_decode_file(file_contents[:-1])
+
+        filepath = os.path.join(self.SERVER_DATA_PATH, file_name)
         with open(filepath, "wb") as f:
-            f.write(text)
+            f.write(file_contents)
         send_data = "OK@File uploaded successfully."
-        conn.send(base64Encode(send_data))
+        conn.send(b64_encode_text(send_data))
     
     def handle_download(self, conn, data):
         """Handle downloading files from the server."""
         files = os.listdir(self.SERVER_DATA_PATH)
-        send_data = "FILE@"
-        filename = base64Decode(data[1])
+        filename = b64_decode_text(data[1])
         if filename not in files:
-            conn.send(base64Encode("ERROR@File not found."))
+            conn.send(b64_encode_text("ERROR@File not found."))
             return
-        with open(os.path.join(self.SERVER_DATA_PATH, filename), "rb") as f:
-            text = f.read()
-        filename_encoded = base64Encode(filename).decode(self.FORMAT)
-        text_encoded = base64.b64encode(text).decode(self.FORMAT)
-        send_data += f"{filename_encoded}@{text_encoded}"
-        conn.send(base64Encode(send_data))
+        
+        filepath = os.path.join(self.SERVER_DATA_PATH, filename)
+        with open(filepath, "rb") as f:
+            file_contents = f.read()
+        b64_filename = b64_encode_text(filename).decode(self.FORMAT)
+        b64_contents = b64_encode_file(file_contents).decode(self.FORMAT)
+
+        send_data = "FILE@"
+        send_data += f"{b64_filename}@{b64_contents}$"
+        conn.send(b64_encode_text(send_data))
 
     def handle_delete(self, conn, data):
         """Handle deleting files from the server."""
         files = os.listdir(self.SERVER_DATA_PATH)
         send_data = "OK@"
-        filename = base64Decode(data[1])
+        filename = b64_decode_text(data[1])
 
         if filename in files:
             os.remove(os.path.join(self.SERVER_DATA_PATH, filename))
             send_data += "File deleted successfully."
         else:
             send_data += "File not found."
-
-        conn.send(base64Encode(send_data))
+        conn.send(b64_encode_text(send_data))
     
     def hadle_logout(self, conn):
         """Handle client logout."""
-        conn.send(base64Encode("BYE@Goodbye!"))
+        conn.send(b64_encode_text("BYE@Goodbye!"))
         conn.close()
 
     def handle_help(self, conn):
@@ -114,7 +120,7 @@ class Server:
         data += "DELETE <filename>: Delete a file from the server.\n"
         data += "LOGOUT: Disconnect from the server.\n"
         data += "HELP: List all the commands."
-        conn.send(base64Encode(data))
+        conn.send(b64_encode_text(data))
 
     def run(self):
         """Run the server and accept connections."""
