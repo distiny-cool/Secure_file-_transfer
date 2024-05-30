@@ -1,3 +1,4 @@
+import os
 import socket
 import base64
 import threading
@@ -17,6 +18,8 @@ class Client:
         self.condition = threading.Condition()
         self.last_response = None
         self.token = None
+        if not os.path.exists(self.CLINET_DATA_PATH):
+            os.makedirs(self.CLINET_DATA_PATH)
 
     def send_command(self, cmd, data=None):
         """Send commands to the server."""

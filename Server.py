@@ -16,6 +16,8 @@ class Server:
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind(self.ADDR)
         self.server.listen()
+        if not os.path.exists(self.SERVER_DATA_PATH):
+            os.makedirs(self.SERVER_DATA_PATH)
         print("[STARTING] Server is starting.")
         print(f"[LISTENING] Server is listening on {self.IP}:{self.PORT}.")
 
@@ -41,7 +43,7 @@ class Server:
             elif cmd == "DELETE":
                 self.handle_delete(conn, data)
             elif cmd == "LOGOUT":
-                self.hadle_logout(conn)
+                self.handle_logout(conn)
                 break
             elif cmd == "HELP":
                 self.handle_help(conn)
@@ -106,7 +108,7 @@ class Server:
             send_data += "File not found."
         conn.send(b64_encode_text(send_data))
     
-    def hadle_logout(self, conn):
+    def handle_logout(self, conn):
         """Handle client logout."""
         conn.send(b64_encode_text("BYE@Goodbye!"))
         conn.close()
