@@ -10,6 +10,8 @@ class Server:
     SIZE = 1024
     SERVER_DATA_PATH = "Server_data"
     SERVER_CONFIG_PATH = "Server_config"
+    SERVER_PUBLIC = SERVER_CONFIG_PATH + "\\public.pem"
+    SERVER_PRIVATE = SERVER_CONFIG_PATH + "\\private.pem"
     FORMAT = "utf-8"
 
     def __init__(self):
@@ -20,15 +22,44 @@ class Server:
             os.makedirs(self.SERVER_DATA_PATH)
         if not os.path.exists(self.SERVER_CONFIG_PATH):
             os.makedirs(self.SERVER_CONFIG_PATH)
+
+        check_and_generate_keys(self.SERVER_CONFIG_PATH)  # 生成RSA密钥对
         print("[STARTING] Server is starting.")
         print(f"[LISTENING] Server is listening on {self.IP}:{self.PORT}.")
 
     def handle_client(self, conn, addr):
         """Handles individual client connection."""
         print(f"[NEW CONNECTION] {addr} connected.")
-        conn.send(b64_encode_text("OK@Welcome to the File Server."))
+
+        # 发送服务器公钥
+        send_data = "OK@Welcome to the File Server.@" + getCASendData(self.SERVER_PUBLIC)
+        conn.send(b64_encode_text(send_data))
 
         while True:
+            success = True
+            private_key = load_private_key(self.SERVER_PRIVATE)
+            data = decrypt_rsa(private_key, conn.recv(self.SIZE))
+            if not data:
+                break
+
+            data = data.split("@")
+            cmd = data[0]
+
+            if cmd == "NO":
+                self.handle_no(conn)
+                success = False
+                break
+            elif cmd == "YES":  # 客户端同意建立会话,获得会话密钥
+                session_key = data[1]
+                print(f"会话密钥为: {session_key}")
+                self.handle_yes(conn)
+                break
+            else:
+                send_data = "ERROR@Please type 'YES' or 'NO' again.\n"
+                conn.send(b64_encode_text(send_data))
+
+        while success:
+            print(f"[SERVER]: 会话密钥交换成功，会话继续！")
             data = b64_decode_text(conn.recv(self.SIZE))
             if not data:
                 break
@@ -53,6 +84,13 @@ class Server:
         print(f"[DISCONNECTED] {addr} disconnected")
         print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 2}")
         conn.close()
+
+    def handle_no(self, conn):
+        conn.send(b64_encode_text("BYE@Goodbye!"))
+        conn.close()
+
+    def handle_yes(self, conn):
+        conn.send(b64_encode_text("SUCCESS@Continue!"))
 
     def handle_list(self, conn):
         """Handle listing files on the server."""

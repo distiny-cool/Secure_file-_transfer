@@ -1,5 +1,8 @@
 import base64
+import os
+
 from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
@@ -112,6 +115,8 @@ def load_private_key(path):
     
 
 def encrypt_rsa(public_key, data):
+    if type(public_key) == str:
+        public_key = serialization.load_pem_public_key(public_key.encode('utf-8'))
     """Encrypt data (str) using RSA public key as encrypted data(byte).."""
     return public_key.encrypt(
         data.encode("utf-8"), padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
@@ -122,6 +127,71 @@ def decrypt_rsa(private_key, encrypted_data):
     return private_key.decrypt(
         encrypted_data, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
     ).decode("utf-8")
+
+
+def generate_public_key_fingerprint(public_key_pem):
+    """
+    生成公钥的SHA-256指纹
+
+    参数:
+    public_key_pem (str): 公钥的PEM格式字符串
+
+    返回:
+    str: 公钥的SHA-256指纹
+    """
+    # 加载PEM格式公钥
+    public_key = serialization.load_pem_public_key(
+        public_key_pem.encode('utf-8'),
+        backend=default_backend()
+    )
+
+    # 转换为DER格式的字节序列
+    public_key_der = public_key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    # 计算SHA-256指纹
+    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    digest.update(public_key_der)
+    sha256_fingerprint = digest.finalize().hex()
+
+    return sha256_fingerprint
+
+def generate_session_key():
+    """Generates a key and save it into a file"""
+    key = Fernet.generate_key()
+    return key
+
+
+
+def check_and_generate_keys(directory):
+    private_key_path = os.path.join(directory, 'private.pem')
+    public_key_path = os.path.join(directory, 'public.pem')
+
+    if not os.path.exists(private_key_path) or not os.path.exists(public_key_path):
+        print("RSA keys not found. Generating new keys...")
+        generate_rsa_key_pair(directory)
+    else:
+        print("RSA keys already exist.")
+
+
+def getCASendData(filepath):
+    # 发送服务器公钥
+    with open(filepath, "rb") as f:
+        file_contents = f.read()
+
+    b64_filename = b64_encode_text(filepath).decode("utf-8")
+    b64_contents = b64_encode_file(file_contents).decode("utf-8")
+
+    # salt = os.urandom(16)
+    # salt = str(salt)
+    # b64_salt = b64_encode_file(salt).decode("utf-8")
+
+    send_data = f"{b64_filename}@{b64_contents}$"
+    return send_data
+
+
 
 if __name__ == "__main__":
     generate_rsa_key_pair(
