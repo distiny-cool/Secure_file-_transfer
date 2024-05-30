@@ -60,6 +60,16 @@ def decrypt_file(filename, key):
     with open(filename, "wb") as file:
         file.write(decrypted_data)
 
+def encrypt_text(text, key):
+    """Given a text (str) and key (bytes), it encrypts the text and return it"""
+    fer = Fernet(key)
+    return fer.encrypt(text.encode("utf-8"))
+
+def decrypt_text(text, key):
+    """Given a text (str) and key (bytes), it decrypts the text and return it"""
+    fer = Fernet(key)
+    return fer.decrypt(text).decode("utf-8")
+
 
 def generate_rsa_key_pair(save_path):
     """Generate RSA key pair."""

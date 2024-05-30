@@ -1,6 +1,5 @@
 import os
 import socket
-import base64
 import threading
 from util import *
 
@@ -10,6 +9,7 @@ class Client:
     ADDR = (IP, PORT)
     SIZE = 1024
     CLIENT_DATA_PATH = "Client_data"
+    CLIENT_CONFIG_PATH = "Client_config"
     FORMAT = 'utf-8'
 
     def __init__(self):
@@ -20,6 +20,8 @@ class Client:
         self.token = None
         if not os.path.exists(self.CLINET_DATA_PATH):
             os.makedirs(self.CLINET_DATA_PATH)
+        if not os.path.exists(self.CLINET_CONFIG_PATH):
+            os.makedirs(self.CLINET_CONFIG_PATH)
 
     def send_command(self, cmd, data=None):
         """Send commands to the server."""
@@ -28,6 +30,7 @@ class Client:
                 send_data = f"{cmd}@{data}"
             else:
                 send_data = cmd
+            # enc_data = encrypt_text(send_data, self.token)
             self.client.sendall(b64_encode_text(send_data))
             self.condition.wait()  # Wait for the response before returning
 

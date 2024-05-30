@@ -1,7 +1,6 @@
 import os
 import socket
 import threading
-import base64
 from util import *
 
 class Server:
@@ -10,6 +9,7 @@ class Server:
     ADDR = (IP, PORT)
     SIZE = 1024
     SERVER_DATA_PATH = "Server_data"
+    SERVER_CONFIG_PATH = "Server_config"
     FORMAT = "utf-8"
 
     def __init__(self):
@@ -18,6 +18,8 @@ class Server:
         self.server.listen()
         if not os.path.exists(self.SERVER_DATA_PATH):
             os.makedirs(self.SERVER_DATA_PATH)
+        if not os.path.exists(self.SERVER_CONFIG_PATH):
+            os.makedirs(self.SERVER_CONFIG_PATH)
         print("[STARTING] Server is starting.")
         print(f"[LISTENING] Server is listening on {self.IP}:{self.PORT}.")
 
