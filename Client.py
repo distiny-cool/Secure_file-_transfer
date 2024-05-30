@@ -18,10 +18,10 @@ class Client:
         self.condition = threading.Condition()
         self.last_response = None
         self.token = None
-        if not os.path.exists(self.CLINET_DATA_PATH):
-            os.makedirs(self.CLINET_DATA_PATH)
-        if not os.path.exists(self.CLINET_CONFIG_PATH):
-            os.makedirs(self.CLINET_CONFIG_PATH)
+        if not os.path.exists(self.CLIENT_DATA_PATH):
+            os.makedirs(self.CLIENT_DATA_PATH)
+        if not os.path.exists(self.CLIENT_CONFIG_PATH):
+            os.makedirs(self.CLIENT_CONFIG_PATH)
 
     def send_command(self, cmd, data=None):
         """Send commands to the server."""
