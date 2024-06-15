@@ -1,7 +1,10 @@
 import os
 import socket
 import threading
+from datetime import datetime
+
 from util import *
+
 
 class Server:
     IP = "127.0.0.1"
@@ -27,36 +30,77 @@ class Server:
         print("[STARTING] Server is starting.")
         print(f"[LISTENING] Server is listening on {self.IP}:{self.PORT}.")
 
-    def handle_client(self, conn, addr):
+    def authentication(self, conn, addr):
         """Handles individual client connection."""
         print(f"[NEW CONNECTION] {addr} connected.")
 
-        # 发送服务器公钥
+        # 向客户端发送服务器公钥
         send_data = "OK@Welcome to the File Server.@" + getCASendData(self.SERVER_PUBLIC)
         conn.send(b64_encode_text(send_data))
 
         while True:
             success = True
-            private_key = load_private_key(self.SERVER_PRIVATE)
-            data = decrypt_rsa(private_key, conn.recv(self.SIZE))
+            # 若客户端同意建立会话，则接收客户端使用服务器公钥加密的对称密钥
+            data = b64_decode_text(conn.recv(self.SIZE))
             if not data:
                 break
+            # YES @ session_key @ signature @ public_key_data
+            # print("data", data)
+            while not data.endswith("$"):
+                data += b64_decode_text(conn.recv(self.SIZE))
+                #print("data", data)
 
             data = data.split("@")
+            # print("data", data)
             cmd = data[0]
-
             if cmd == "NO":
-                self.handle_no(conn)
                 success = False
+                self.handle_no(conn)
                 break
+
             elif cmd == "YES":  # 客户端同意建立会话,获得会话密钥
                 session_key = data[1]
-                print(f"会话密钥为: {session_key}")
-                self.handle_yes(conn)
-                break
+                signature = data[2]
+                client_public_key_filename = data[3]
+                client_public_key_file = data[4][:-1]
+
+                # 服务器私钥解密会话密钥
+                private_key = load_private_key(self.SERVER_PRIVATE)
+                session_key = base64.b64decode(session_key.encode('utf-8'))
+                session_key = decrypt_rsa(private_key, session_key)
+                print(f"session_key: {session_key}")
+
+                # 服务器验证客户端签名3
+
+                timestamp = int(datetime.utcnow().timestamp() // 60)
+                message_with_timestamp = str(timestamp)
+                #print("message_with timestamp", message_with_timestamp)
+                signature = base64.b64decode(signature.encode('utf-8'))
+                #print("signature", signature)
+                client_public_key = b64_decode_text(client_public_key_file)
+                #print("client_public_key", client_public_key)
+
+                signature_valid = verify_signature(client_public_key, message_with_timestamp, signature)
+                if signature_valid:
+                    print("Signature is valid.")
+                    self.handle_yes(conn)
+                    success = True
+                    break
+                else:
+                    print("Signature is not valid.")
+                    self.handle_no(conn)
+                    success = False
+                    break
             else:
                 send_data = "ERROR@Please type 'YES' or 'NO' again.\n"
                 conn.send(b64_encode_text(send_data))
+
+        print("success", success)
+        return success
+
+    def handle_client(self, conn, addr):
+        # 首先进行身份认证，成功后才能进行后续操作
+        success = self.authentication(conn, addr)
 
         while success:
             print(f"[SERVER]: 会话密钥交换成功，会话继续！")
@@ -116,7 +160,7 @@ class Server:
             f.write(file_contents)
         send_data = "OK@File uploaded successfully."
         conn.send(b64_encode_text(send_data))
-    
+
     def handle_download(self, conn, data):
         """Handle downloading files from the server."""
         files = os.listdir(self.SERVER_DATA_PATH)
@@ -124,7 +168,7 @@ class Server:
         if filename not in files:
             conn.send(b64_encode_text("ERROR@File not found."))
             return
-        
+
         filepath = os.path.join(self.SERVER_DATA_PATH, filename)
         with open(filepath, "rb") as f:
             file_contents = f.read()
@@ -147,7 +191,7 @@ class Server:
         else:
             send_data += "File not found."
         conn.send(b64_encode_text(send_data))
-    
+
     def handle_logout(self, conn):
         """Handle client logout."""
         conn.send(b64_encode_text("BYE@Goodbye!"))
@@ -171,6 +215,7 @@ class Server:
             thread = threading.Thread(target=self.handle_client, args=(conn, addr))
             thread.start()
             print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
+
 
 if __name__ == "__main__":
     server = Server()

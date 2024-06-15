@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
+
 def b64_encode_text(text):
     """Encode the text(str) into bytes with base64 format."""
     return base64.b64encode(text.encode("utf-8"))
@@ -17,13 +18,16 @@ def b64_decode_text(text):
     """Decode the text(bytes/str) from base64 format into str."""
     return base64.b64decode(text).decode("utf-8")
 
+
 def b64_encode_file(file):
     """Encode the file into bytes with base64 format."""
     return base64.b64encode(file)
 
+
 def b64_decode_file(file):
     """Decode the file from base64 format into bytes."""
     return base64.b64decode(file)
+
 
 def generate_and_save_key(key_path="session.key"):
     """Generates a key and save it into a file"""
@@ -63,10 +67,12 @@ def decrypt_file(filename, key):
     with open(filename, "wb") as file:
         file.write(decrypted_data)
 
+
 def encrypt_text(text, key):
     """Given a text (str) and key (bytes), it encrypts the text and return it"""
     fer = Fernet(key)
     return fer.encrypt(text.encode("utf-8"))
+
 
 def decrypt_text(text, key):
     """Given a text (str) and key (bytes), it decrypts the text and return it"""
@@ -112,15 +118,27 @@ def load_private_key(path):
     """Load private key from the given path."""
     with open(path, "rb") as f:
         return serialization.load_pem_private_key(f.read(), password=None)
-    
+
 
 def encrypt_rsa(public_key, data):
-    if type(public_key) == str:
+    if isinstance(public_key, str):
         public_key = serialization.load_pem_public_key(public_key.encode('utf-8'))
-    """Encrypt data (str) using RSA public key as encrypted data(byte).."""
-    return public_key.encrypt(
-        data.encode("utf-8"), padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+
+    # 加密数据
+    encrypted_data = public_key.encrypt(
+        data.encode("utf-8"),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
     )
+
+    # 将加密结果转换为Base64编码的字符串
+    encrypted_data_base64 = base64.b64encode(encrypted_data).decode('utf-8')
+
+    return encrypted_data_base64
+
 
 def decrypt_rsa(private_key, encrypted_data):
     """Decrypt data (str) from encrypted data(byte) using RSA private key."""
@@ -158,11 +176,11 @@ def generate_public_key_fingerprint(public_key_pem):
 
     return sha256_fingerprint
 
-def generate_session_key():
+
+def generate_session_key() -> bytes:
     """Generates a key and save it into a file"""
     key = Fernet.generate_key()
     return key
-
 
 
 def check_and_generate_keys(directory):
@@ -181,7 +199,7 @@ def getCASendData(filepath):
     with open(filepath, "rb") as f:
         file_contents = f.read()
 
-    b64_filename = b64_encode_text(filepath).decode("utf-8")
+    b64_filename = b64_encode_text("pubic_key").decode("utf-8")
     b64_contents = b64_encode_file(file_contents).decode("utf-8")
 
     # salt = os.urandom(16)
@@ -192,8 +210,133 @@ def getCASendData(filepath):
     return send_data
 
 
+def hash_str(data: str) -> str:
+    # 创建一个hash对象
+    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    # 提供数据给hash对象
+    digest.update(data.encode('utf-8'))
+    # 获取最终的哈希值
+    hash_value = digest.finalize()
+    # 将哈希值转换为十六进制字符串表示
+    hex_hash_value = hash_value.hex()
+
+    # print(hex_hash_value, "  ", type(hex_hash_value))  # 打印哈希值
+    return hex_hash_value
+
+
+def generate_rsa_key_pair_with_password(save_path, password):
+    # 生成私钥
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+
+    # 将私钥序列化并加密
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
+    )
+
+    # 保存加密的私钥
+    private_key_path = os.path.join(save_path, 'private.pem')
+    with open(private_key_path, 'wb') as f:
+        f.write(pem)
+
+    # 生成公钥
+    public_key = private_key.public_key()
+
+    # 将公钥序列化
+    pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    # 保存公钥
+    public_key_path = os.path.join(save_path, 'public.pem')
+    with open(public_key_path, 'wb') as f:
+        f.write(pem)
+
+    return private_key_path, public_key_path
+
+
+def verify_rsa_private_key_with_password(user_path, password):
+    try:
+        private_key_path = os.path.join(user_path, 'private.pem')
+        with open(private_key_path, 'rb') as key_file:
+            private_key = serialization.load_pem_private_key(
+                key_file.read(),
+                password=password.encode(),
+                backend=default_backend()
+            )
+        return True
+    except (ValueError, TypeError) as e:
+        # ValueError is raised if the password is incorrect or the key is invalid
+        # TypeError is raised if the key file is not in the correct format
+        print(f"Failed to decrypt the private key: {e}")
+        return False
+
+
+def sign_message_with_private_key(private_key, message):
+    signature = private_key.sign(
+        message.encode(),
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+    # 将签名转换为Base64编码字符串
+    #print("signature", signature)
+    return base64.b64encode(signature).decode("utf-8")
+
+
+# 验证签名
+def verify_signature(public_key_pem, message, signature):
+    # 加载PEM格式公钥
+    public_key = serialization.load_pem_public_key(
+        public_key_pem.encode('utf-8'),
+        backend=default_backend()
+    )
+
+    try:
+        public_key.verify(
+            signature,
+            message.encode(),
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return True
+    except Exception as e:
+        print(f"Signature verification failed: {e}")
+        return False
+
 
 if __name__ == "__main__":
+
+    username = "daichuan"
+    password = "123456"
+
+    hash_name = hash_str(username)
+    hash_password = hash_str(password)
+
+    user_path = "Client_config" + "/" + hash_name
+
+    if not os.path.exists(user_path):
+        os.makedirs(user_path)
+        print("User does not exist, register for you.")
+        generate_rsa_key_pair_with_password(user_path, hash_password)
+
+    if verify_rsa_private_key_with_password(user_path, hash_password):
+        print("The password is correct, and the private key is valid.")
+    else:
+        print("The password is incorrect, or the private key is invalid.")
+
+    '''
     generate_rsa_key_pair(
         "C:\\Users\\kody\\Desktop\\Secure_file _transfer\\Server_config"
     )
@@ -209,3 +352,4 @@ if __name__ == "__main__":
     print("[+] Private key loaded successfully.")
     plaintext = decrypt_rsa(private_key, encrypted_data)
     print("[+] Decrypted data:", plaintext)
+    '''

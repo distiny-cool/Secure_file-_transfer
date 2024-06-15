@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import socket
 import threading
@@ -16,20 +17,22 @@ class Client:
     FORMAT = 'utf-8'
 
     def __init__(self):
-        self.session_key = None
-        self.sever_public_key = None
+        self.token = login()
+        self.session_key = None  # 会话密钥
+        self.sever_public_key = None  # 服务器公钥
+        self.client_private_key = None  # 客户端私钥
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client.connect(self.ADDR)
         self.condition = threading.Condition()
         self.last_response = None
-        self.token = None
+
         if not os.path.exists(self.CLIENT_DATA_PATH):
             os.makedirs(self.CLIENT_DATA_PATH)
         if not os.path.exists(self.CLIENT_CONFIG_PATH):
             os.makedirs(self.CLIENT_CONFIG_PATH)
 
-    def send_command(self, cmd, data=None):
+    def send_command(self, cmd, data=None):  # 命令@明文数据
         """Send commands to the server."""
         with self.condition:
             if data:
@@ -67,27 +70,29 @@ class Client:
 
         self.send_command("UPLOAD", f"{b64_filename}@{b64_contents}$")
 
-    def change_key(self):
+    def change_key(self) -> bool:
         """Change the session key."""
-        # 获取服务器公钥
+        # 首先，服务器主动发送"OK"信息，并获取明文的服务器公钥
         data = b64_decode_text(self.client.recv(self.SIZE))
         cmd = data.split("@")[0]
         if cmd != "OK":
             print(f"ERROR: Expected CA command, but got {cmd}.")
-            return
+            return False
         msg, filename, contents = data.split("@")[1], data.split("@")[2], data.split("@")[3]
         print(f"[SERVER]: {msg}")
 
         self.sever_public_key = b64_decode_text(contents)
-        print(type(self.sever_public_key))
+        #print(type(self.sever_public_key))
         key_fingerprint = generate_public_key_fingerprint(self.sever_public_key)
-        print(f"服务器公钥指纹为: {key_fingerprint}")
-        print("请确认该服务器指纹是否正确，若正确请按YES，否则按NO")
+        print(f"[SERVER]: The server public key fingerprint is: {key_fingerprint}")
+        print(f"[SERVER]: Please confirm whether the server fingerprint is correct. If it is correct, press YES. "
+              f"Otherwise, press NO.")
 
         success = True
+        # 若接收服务器公钥，则通过“YES”发送加密后的对话密钥，若不通过，通过“NO”关闭连接
         data = b64_decode_text(self.client.recv(self.SIZE))
+        #print(data)
         with self.condition:
-            self.last_response = (cmd, msg)
             self.condition.notify()  # Notify waiting thread
         if data:
             cmd, _, msg = data.partition("@")
@@ -95,7 +100,7 @@ class Client:
                 print(f"[SERVER]: {msg}")
                 success = False
             elif cmd == "SUCCESS":
-                print(f"[SERVER]: 会话密钥交换成功，会话继续！")
+                print(f"[SERVER]: Identity authentication passed, please continue")
         return success
 
     def receive_messages(self):
@@ -173,13 +178,23 @@ class Client:
 
                 elif cmd == "YES":
                     self.session_key = generate_session_key().decode()  # 生成会话密钥，并将密钥转换为字符串
-                    self.send_rsa_encrypted_command(cmd, self.session_key)
-                    print(f"会话密钥为: {self.session_key}")
+                    encrypt_session_key = encrypt_rsa(self.sever_public_key, self.session_key)
+                    #print(encrypt_session_key, type(encrypt_session_key))
+                    send_data = f"{cmd}@{encrypt_session_key}@{self.token}"
+                    #print(send_data)
+                    self.client.sendall(b64_encode_text(send_data))
+                    #print(f"Session key and token sent successfully!")
+                    with self.condition:
+                        self.condition.wait()  # Wait for the response before returning
+                    time.sleep(0.1)
 
                 elif cmd == "NO":
-                    print("服务器指纹不正确，连接已断开")
-                    self.send_rsa_encrypted_command(cmd, None)
-
+                    print("[CLIENT]: The connection will be closed because you rejected the server's public key fingerprint.")
+                    # 发送NO命令，关闭连接
+                    send_data = f"{cmd}@$"
+                    self.client.sendall(b64_encode_text(send_data))
+                    with self.condition:
+                        self.condition.wait()  # Wait for the response before returning
                     break
                 else:
                     print("Invalid command. Type HELP for more information.")
@@ -188,7 +203,62 @@ class Client:
             self.client.close()
 
 
+def login():
+    # 如果登录成功，获得证明用户身份的token
+    # 登录, 用户本地存储了在此登录过得用户的公钥、密码加密的私钥
+    # 如果用户输入的用户名不存在，则为用户创建一个新的账户（新的私钥）
+    # 如果用户输入的用户名存在，且密码正确。则说明本地的私钥属于当前操作的用户
+    print("[CLIENT]: Welcome to the File Transfer System!")
+    print("[CLIENT]: Please enter your username and password to login.")
+    print("[CLIENT]: If the username does not exist, a new account will be created for you.")
+
+    while True:
+        username = input("[Username]: ")
+        password = input("[Password]: ")
+
+        hash_name = hash_str(username)
+        hash_password = hash_str(password)
+
+        user_path = "Client_config" + "/" + hash_name
+        if not os.path.exists(user_path):
+            os.makedirs(user_path)
+            print("[CLIENT]: User does not exist, register for you.")
+            generate_rsa_key_pair_with_password(user_path, hash_password)
+            break
+        else:
+            print(f"[CLIENT]: User {username} already exists.")
+            if verify_rsa_private_key_with_password(user_path, hash_password):
+                print("[CLIENT]: The password is correct, please continue.")
+                break
+            else:
+                print("[CLIENT]: The password is incorrect.")
+                continue_or_exit = input("[CLIENT]: To exit, please enter [exit]. To continue, please enter any character: ")
+                if continue_or_exit == "exit":
+                    exit(0)
+
+    # 获取当前时间戳，以分钟为单位
+    timestamp = int(datetime.utcnow().timestamp() // 60)
+    # 在消息末尾附加时间戳
+    message_with_timestamp = str(timestamp)
+    print("[CLIENT]: The message to be signed is:", message_with_timestamp)
+    private_key_path = os.path.join(user_path, 'private.pem')
+    with open(private_key_path, 'rb') as key_file:
+        private_key = serialization.load_pem_private_key(
+            key_file.read(),
+            password=hash_password.encode(),
+            backend=default_backend()
+        )
+
+    signature = sign_message_with_private_key(private_key, message_with_timestamp)
+
+    public_key_data = getCASendData(os.path.join(user_path, 'public.pem'))  #send_data = f"{b64_filename}@{b64_contents}$"
+    #print(f"{signature}@{public_key_data}")
+    print()
+    return f"{signature}@{public_key_data}"
+
+
 if __name__ == "__main__":
+
     client = Client()
     receive_thread = threading.Thread(target=client.receive_messages)
     send_thread = threading.Thread(target=client.send_commands)
