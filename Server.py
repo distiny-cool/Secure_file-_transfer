@@ -21,6 +21,8 @@ class Server:
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind(self.ADDR)
         self.server.listen()
+        self.session_key = None
+        self.client_directory = None
         if not os.path.exists(self.SERVER_DATA_PATH):
             os.makedirs(self.SERVER_DATA_PATH)
         if not os.path.exists(self.SERVER_CONFIG_PATH):
@@ -67,8 +69,8 @@ class Server:
                 # 服务器私钥解密会话密钥
                 private_key = load_private_key(self.SERVER_PRIVATE)
                 session_key = base64.b64decode(session_key.encode('utf-8'))
-                session_key = decrypt_rsa(private_key, session_key)
-                print(f"session_key: {session_key}")
+                self.session_key = decrypt_rsa(private_key, session_key)
+                print(f"session_key: {self.session_key}")
 
                 # 服务器验证客户端签名3
 
@@ -79,6 +81,10 @@ class Server:
                 #print("signature", signature)
                 client_public_key = b64_decode_text(client_public_key_file)
                 #print("client_public_key", client_public_key)
+
+                self.client_directory = os.path.join(self.SERVER_DATA_PATH, hash_str(client_public_key))
+                if not os.path.exists(self.client_directory):
+                    os.makedirs(self.client_directory)
 
                 signature_valid = verify_signature(client_public_key, message_with_timestamp, signature)
                 if signature_valid:
@@ -101,24 +107,27 @@ class Server:
     def handle_client(self, conn, addr):
         # 首先进行身份认证，成功后才能进行后续操作
         success = self.authentication(conn, addr)
-
+        print(f"[SERVER]: 会话密钥交换成功，会话继续！")
         while success:
-            print(f"[SERVER]: 会话密钥交换成功，会话继续！")
+
             data = b64_decode_text(conn.recv(self.SIZE))
+            #print("data: ", data)
             if not data:
                 break
-            data = data.split("@")
-            cmd = data[0]
+            decrypt_data = decrypt_text(data, self.session_key)
+
+            decrypt_data = decrypt_data.split("@")
+            cmd = decrypt_data[0]
             print(f"[{addr}] {cmd}")
 
             if cmd == "LIST":
                 self.handle_list(conn)
             elif cmd == "UPLOAD":
-                self.handle_upload(conn, data)
+                self.handle_upload(conn, decrypt_data)
             elif cmd == "DOWNLOAD":
-                self.handle_download(conn, data)
+                self.handle_download(conn, decrypt_data)
             elif cmd == "DELETE":
-                self.handle_delete(conn, data)
+                self.handle_delete(conn, decrypt_data)
             elif cmd == "LOGOUT":
                 self.handle_logout(conn)
                 break
@@ -138,13 +147,14 @@ class Server:
 
     def handle_list(self, conn):
         """Handle listing files on the server."""
-        files = os.listdir(self.SERVER_DATA_PATH)
+        files = os.listdir(self.client_directory)
         send_data = "OK@"
 
         if len(files) == 0:
             send_data += "The server directory is empty"
         else:
             send_data += "\n".join(f for f in files)
+        send_data = encrypt_text(send_data, self.session_key.encode()).decode("utf-8")
         conn.send(b64_encode_text(send_data))
 
     def handle_upload(self, conn, data):
@@ -152,24 +162,29 @@ class Server:
         file_name = b64_decode_text(data[1])
         file_contents = data[2]
         while not file_contents.endswith("$"):
-            file_contents += b64_decode_text(conn.recv(self.SIZE))
+            content = b64_decode_text(conn.recv(self.SIZE))
+            file_contents += decrypt_text(content, self.session_key)
         file_contents = b64_decode_file(file_contents[:-1])
 
-        filepath = os.path.join(self.SERVER_DATA_PATH, file_name)
+        filepath = os.path.join(self.client_directory, file_name)
         with open(filepath, "wb") as f:
             f.write(file_contents)
         send_data = "OK@File uploaded successfully."
+        send_data = encrypt_text(send_data, self.session_key.encode()).decode("utf-8")
         conn.send(b64_encode_text(send_data))
 
     def handle_download(self, conn, data):
         """Handle downloading files from the server."""
-        files = os.listdir(self.SERVER_DATA_PATH)
+        files = os.listdir(self.client_directory)
         filename = b64_decode_text(data[1])
+        print(filename)
         if filename not in files:
-            conn.send(b64_encode_text("ERROR@File not found."))
+            send_data = encrypt_text("ERROR@File not found.", self.session_key.encode()).decode("utf-8")
+            conn.send(b64_encode_text(send_data))
             return
 
-        filepath = os.path.join(self.SERVER_DATA_PATH, filename)
+        filepath = os.path.join(self.client_directory, filename)
+        print(filepath)
         with open(filepath, "rb") as f:
             file_contents = f.read()
         b64_filename = b64_encode_text(filename).decode(self.FORMAT)
@@ -177,24 +192,27 @@ class Server:
 
         send_data = "FILE@"
         send_data += f"{b64_filename}@{b64_contents}$"
+        send_data = encrypt_text(send_data, self.session_key.encode()).decode("utf-8")
         conn.send(b64_encode_text(send_data))
 
     def handle_delete(self, conn, data):
         """Handle deleting files from the server."""
-        files = os.listdir(self.SERVER_DATA_PATH)
+        files = os.listdir(self.client_directory)
         send_data = "OK@"
         filename = b64_decode_text(data[1])
 
         if filename in files:
-            os.remove(os.path.join(self.SERVER_DATA_PATH, filename))
+            os.remove(os.path.join(self.client_directory, filename))
             send_data += "File deleted successfully."
         else:
             send_data += "File not found."
+        send_data = encrypt_text(send_data, self.session_key.encode()).decode("utf-8")
         conn.send(b64_encode_text(send_data))
 
     def handle_logout(self, conn):
         """Handle client logout."""
-        conn.send(b64_encode_text("BYE@Goodbye!"))
+        send_data = encrypt_text("BYE@Goodbye!", self.session_key.encode()).decode("utf-8")
+        conn.send(b64_encode_text(send_data))
         conn.close()
 
     def handle_help(self, conn):
@@ -206,7 +224,11 @@ class Server:
         data += "DELETE <filename>: Delete a file from the server.\n"
         data += "LOGOUT: Disconnect from the server.\n"
         data += "HELP: List all the commands."
-        conn.send(b64_encode_text(data))
+        send_data = encrypt_text(data, self.session_key.encode()).decode("utf-8")
+        conn.send(b64_encode_text(send_data))
+
+
+
 
     def run(self):
         """Run the server and accept connections."""

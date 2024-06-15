@@ -17,7 +17,7 @@ class Client:
     FORMAT = 'utf-8'
 
     def __init__(self):
-        self.token = login()
+        self.client_directory, self.token = login()
         self.session_key = None  # 会话密钥
         self.sever_public_key = None  # 服务器公钥
         self.client_private_key = None  # 客户端私钥
@@ -43,15 +43,21 @@ class Client:
             self.client.sendall(b64_encode_text(send_data))
             self.condition.wait()  # Wait for the response before returning
 
-    def send_rsa_encrypted_command(self, cmd, data):
+    def send_encrypt_command(self, cmd, data=None):  # 加密数据
+        """Send commands to the server."""
         with self.condition:
             if data:
                 send_data = f"{cmd}@{data}"
             else:
                 send_data = cmd
-            encrypt_session_key = encrypt_rsa(self.sever_public_key, send_data)
-            self.client.sendall(encrypt_session_key)
+
+            # 加密数据
+            send_data = encrypt_text(send_data, self.session_key.encode()).decode("utf-8")
+            #print(f"send_data: {send_data}")
+            self.client.sendall(b64_encode_text(send_data))
             self.condition.wait()  # Wait for the response before returning
+
+
 
     def upload_file(self, path):
         """Handle the upload file logic."""
@@ -68,7 +74,8 @@ class Client:
         b64_filename = b64_encode_text(filename).decode(self.FORMAT)
         b64_contents = b64_encode_file(file_contents).decode(self.FORMAT)
 
-        self.send_command("UPLOAD", f"{b64_filename}@{b64_contents}$")
+        data = f"UPLOAD@{b64_filename}@{b64_contents}$"
+        self.send_encrypt_command(data)
 
     def change_key(self) -> bool:
         """Change the session key."""
@@ -107,10 +114,13 @@ class Client:
         """Receive messages from the server and handle them."""
         try:
             success = self.change_key()
+            # 在这之后都是对称密钥机密的通信
+
             while success:
                 data = b64_decode_text(self.client.recv(self.SIZE))
                 if data:
-                    cmd, _, msg = data.partition("@")
+                    decrypt_data = decrypt_text(data, self.session_key)
+                    cmd, _, msg = decrypt_data.partition("@")
                     with self.condition:
                         self.last_response = (cmd, msg)
                         self.condition.notify()  # Notify waiting thread
@@ -120,12 +130,14 @@ class Client:
                     elif cmd == "FILE":
                         filename, contents = msg.split("@")
                         filename = b64_decode_text(filename)
-                        filepath = f"{self.CLIENT_DATA_PATH}/{filename}"
+                        print(filename)
+                        print(self.client_directory)
+                        filepath = os.path.join(self.client_directory, filename)
 
                         # Receive the file content all
                         # todo: if spent too much time, it should be break and return error
                         while not contents.endswith("$"):
-                            contents += b64_decode_text(self.client.recv(self.SIZE))
+                            contents += decrypt_text(b64_decode_text(self.client.recv(self.SIZE)), self.session_key)
                         contents = b64_decode_file(contents[:-1])
 
                         with open(filepath, "wb") as file:
@@ -149,7 +161,7 @@ class Client:
                 cmd = data[0]
 
                 if cmd in {"HELP", "LIST", "LOGOUT"}:
-                    self.send_command(cmd)
+                    self.send_encrypt_command(cmd)
                     if cmd == "LOGOUT":
                         break
 
@@ -157,7 +169,7 @@ class Client:
                     if len(data) > 1:
                         filename = data[1]
                         filename_encoded = b64_encode_text(filename).decode(self.FORMAT)
-                        self.send_command(cmd, filename_encoded)
+                        self.send_encrypt_command(cmd, filename_encoded)
                     else:
                         print("ERROR: No filename provided for DELETE.")
 
@@ -172,7 +184,7 @@ class Client:
                     if len(data) > 1:
                         filename = data[1]
                         filename_encoded = b64_encode_text(filename).decode(self.FORMAT)
-                        self.send_command(cmd, filename_encoded)
+                        self.send_encrypt_command(cmd, filename_encoded)
                     else:
                         print("ERROR: No filename provided for DOWNLOAD.")
 
@@ -253,13 +265,18 @@ def login():
 
     public_key_data = getCASendData(os.path.join(user_path, 'public.pem'))  #send_data = f"{b64_filename}@{b64_contents}$"
     #print(f"{signature}@{public_key_data}")
-    print()
-    return f"{signature}@{public_key_data}"
+
+    client_directory = os.path.join("Client_data", username)
+    if not os.path.exists(client_directory):
+        os.makedirs(client_directory)
+    print("client_directory: ", client_directory)
+    return client_directory, f"{signature}@{public_key_data}"
 
 
 if __name__ == "__main__":
 
     client = Client()
+    print(f"client_directory: {client.client_directory}")
     receive_thread = threading.Thread(target=client.receive_messages)
     send_thread = threading.Thread(target=client.send_commands)
 

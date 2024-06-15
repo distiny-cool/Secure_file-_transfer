@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.ciphers import algorithms, Cipher, modes
 
 
 def b64_encode_text(text):
@@ -315,6 +316,20 @@ def verify_signature(public_key_pem, message, signature):
         print(f"Signature verification failed: {e}")
         return False
 
+# AES加密函数
+def encrypt_aes(key, plaintext):
+    # 使用PKCS7填充
+    padder = padding.PKCS7(algorithms.AES.block_size).padder()
+    padded_plaintext = padder.update(plaintext) + padder.finalize()
+
+    # 创建AES加密器
+    iv = os.urandom(16)  # 16 bytes for AES
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+
+    # 加密数据
+    ciphertext = encryptor.update(padded_plaintext) + encryptor.finalize()
+    return iv + ciphertext
 
 if __name__ == "__main__":
 
