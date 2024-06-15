@@ -72,10 +72,14 @@ class Client:
 
         # Encode the filename and file contents(Escape special characters)
         b64_filename = b64_encode_text(filename).decode(self.FORMAT)
+
+
         b64_contents = b64_encode_file(file_contents).decode(self.FORMAT)
+        b64_contents = encrypt_text(b64_contents, self.session_key.encode()).decode("utf-8")
+        print(f"b64_contents: {b64_contents}")
 
         data = f"UPLOAD@{b64_filename}@{b64_contents}$"
-        self.send_encrypt_command(data)
+        self.send_command(data)
 
     def change_key(self) -> bool:
         """Change the session key."""
@@ -119,8 +123,7 @@ class Client:
             while success:
                 data = b64_decode_text(self.client.recv(self.SIZE))
                 if data:
-                    decrypt_data = decrypt_text(data, self.session_key)
-                    cmd, _, msg = decrypt_data.partition("@")
+                    cmd, _, msg = data.partition("@")
                     with self.condition:
                         self.last_response = (cmd, msg)
                         self.condition.notify()  # Notify waiting thread
@@ -137,8 +140,13 @@ class Client:
                         # Receive the file content all
                         # todo: if spent too much time, it should be break and return error
                         while not contents.endswith("$"):
-                            contents += decrypt_text(b64_decode_text(self.client.recv(self.SIZE)), self.session_key)
-                        contents = b64_decode_file(contents[:-1])
+                            contents += b64_decode_text(self.client.recv(self.SIZE))
+                        contents = contents[:-1]
+
+                        contents = decrypt_text(contents, self.session_key)
+
+                        contents = b64_decode_file(contents.encode('utf-8'))
+
 
                         with open(filepath, "wb") as file:
                             file.write(contents)
@@ -161,7 +169,7 @@ class Client:
                 cmd = data[0]
 
                 if cmd in {"HELP", "LIST", "LOGOUT"}:
-                    self.send_encrypt_command(cmd)
+                    self.send_command(cmd)
                     if cmd == "LOGOUT":
                         break
 
@@ -169,7 +177,7 @@ class Client:
                     if len(data) > 1:
                         filename = data[1]
                         filename_encoded = b64_encode_text(filename).decode(self.FORMAT)
-                        self.send_encrypt_command(cmd, filename_encoded)
+                        self.send_command(cmd, filename_encoded)
                     else:
                         print("ERROR: No filename provided for DELETE.")
 
@@ -184,7 +192,7 @@ class Client:
                     if len(data) > 1:
                         filename = data[1]
                         filename_encoded = b64_encode_text(filename).decode(self.FORMAT)
-                        self.send_encrypt_command(cmd, filename_encoded)
+                        self.send_command(cmd, filename_encoded)
                     else:
                         print("ERROR: No filename provided for DOWNLOAD.")
 
@@ -249,7 +257,7 @@ def login():
                     exit(0)
 
     # 获取当前时间戳，以分钟为单位
-    timestamp = int(datetime.utcnow().timestamp() // 60)
+    timestamp = int(datetime.utcnow().timestamp() // 600)
     # 在消息末尾附加时间戳
     message_with_timestamp = str(timestamp)
     print("[CLIENT]: The message to be signed is:", message_with_timestamp)
