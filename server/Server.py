@@ -1,7 +1,7 @@
 import os
 import socket
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 from util import *
 
@@ -78,7 +78,7 @@ class Server:
 
                 # 服务器验证客户端签名3
 
-                timestamp = int(datetime.utcnow().timestamp() // 600)
+                timestamp = int(datetime.now(timezone.utc).timestamp() // 600)
                 message_with_timestamp = str(timestamp)
                 # print("message_with timestamp", message_with_timestamp)
                 signature = base64.b64decode(signature.encode("utf-8"))

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import socket
 import threading
@@ -306,7 +306,7 @@ def login():
                     exit(0)
 
     # 获取当前时间戳，以分钟为单位
-    timestamp = int(datetime.utcnow().timestamp() // 600)
+    timestamp = int(datetime.now(timezone.utc).timestamp() // 600)
     # 在消息末尾附加时间戳
     message_with_timestamp = str(timestamp)
     print("[CLIENT]: The message to be signed is:", message_with_timestamp)
